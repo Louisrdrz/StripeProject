@@ -17,14 +17,30 @@ const supabase = createClient(
   }
 )
 
-const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET!
+const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
 
 export async function POST(request: NextRequest) {
+  console.log('🔔 Webhook Stripe reçu!')
+  console.log('🔐 STRIPE_WEBHOOK_SECRET défini:', !!webhookSecret)
+  console.log('🔐 STRIPE_WEBHOOK_SECRET longueur:', webhookSecret?.length || 0)
+  
+  if (!webhookSecret) {
+    console.error('❌ STRIPE_WEBHOOK_SECRET n\'est pas défini dans les variables d\'environnement!')
+    return NextResponse.json(
+      { error: 'Configuration webhook manquante' },
+      { status: 500 }
+    )
+  }
+  
   try {
     const body = await request.text()
+    console.log('📦 Body reçu, longueur:', body.length)
+    
     const signature = request.headers.get('stripe-signature')
+    console.log('🔑 Signature présente:', !!signature)
 
     if (!signature) {
+      console.error('❌ Signature Stripe manquante dans les headers')
       return NextResponse.json(
         { error: 'Signature manquante' },
         { status: 400 }
@@ -35,42 +51,55 @@ export async function POST(request: NextRequest) {
     let event: Stripe.Event
     try {
       event = stripe.webhooks.constructEvent(body, signature, webhookSecret)
+      console.log('✅ Signature vérifiée avec succès!')
     } catch (err: any) {
-      console.error('Erreur vérification signature:', err.message)
+      console.error('❌ Erreur vérification signature:', err.message)
       return NextResponse.json(
         { error: `Webhook Error: ${err.message}` },
         { status: 400 }
       )
     }
 
-    console.log('Webhook reçu:', event.type)
+    console.log('✅ Webhook reçu:', event.type)
 
     // Gérer les différents événements
     switch (event.type) {
       case 'checkout.session.completed': {
+        console.log('📋 Traitement checkout.session.completed')
         const session = event.data.object as Stripe.Checkout.Session
+        console.log('📋 Session mode:', session.mode)
+        console.log('📋 Session metadata:', session.metadata)
 
         if (session.mode === 'subscription') {
+          console.log('💳 Mode subscription détecté')
+          
           // Récupérer les détails de l'abonnement
           const subscription = await stripe.subscriptions.retrieve(
             session.subscription as string
           )
+          console.log('💳 Subscription récupérée:', subscription.id)
 
           const userId = session.metadata?.user_id
+          console.log('👤 User ID depuis metadata:', userId)
+          
           if (!userId) {
-            console.error('user_id manquant dans metadata')
+            console.error('❌ user_id manquant dans metadata!')
+            console.error('❌ Metadata complet:', JSON.stringify(session.metadata))
             break
           }
 
           // Déterminer le quota selon le price ID
           const priceId = subscription.items.data[0].price.id
+          console.log('💰 Price ID:', priceId)
+          
           let quotaLimit = 50 // Par défaut Basic
           if (priceId === process.env.STRIPE_PRICE_ID_PRO) {
             quotaLimit = 200
           }
+          console.log('📊 Quota limit:', quotaLimit)
 
           // Créer ou mettre à jour l'abonnement dans Supabase
-          const { error } = await supabase.from('subscriptions').upsert({
+          const subscriptionData = {
             user_id: userId,
             stripe_customer_id: session.customer as string,
             stripe_subscription_id: subscription.id,
@@ -81,12 +110,18 @@ export async function POST(request: NextRequest) {
             quota_limit: quotaLimit,
             quota_used: 0,
             updated_at: new Date().toISOString(),
-          })
+          }
+          
+          console.log('💾 Tentative d\'insertion dans Supabase:', subscriptionData)
+          
+          const { error, data } = await supabase.from('subscriptions').upsert(subscriptionData)
 
           if (error) {
-            console.error('Erreur création abonnement:', error)
+            console.error('❌ Erreur création abonnement:', error)
+            console.error('❌ Détails erreur:', JSON.stringify(error))
           } else {
-            console.log('Abonnement créé avec succès pour user:', userId)
+            console.log('✅ Abonnement créé avec succès pour user:', userId)
+            console.log('✅ Data retournée:', data)
           }
         }
         break
