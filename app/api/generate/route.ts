@@ -82,19 +82,16 @@ export async function POST(request: NextRequest) {
     // Récupérer les données du formulaire
     const formData = await request.formData()
     const imageFile = formData.get('image') as File | null
-    const imageUrl = formData.get('imageUrl') as string | null
-    const referenceImageFile = formData.get('referenceImage') as File | null
     const prompt = formData.get('prompt') as string
 
-    if ((!imageFile && !imageUrl) || !prompt) {
+    if (!imageFile || !prompt) {
       return NextResponse.json(
-        { error: 'Image (fichier ou URL) et prompt requis' },
+        { error: 'Image et prompt requis' },
         { status: 400 }
       )
     }
 
     console.log('🎨 Prompt de transformation:', prompt)
-    console.log('🖼️ Image de référence fournie:', !!referenceImageFile)
 
     // Vérifier l'abonnement et le quota
     const { data: subscription } = await supabaseAdmin
@@ -118,39 +115,29 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 1. Obtenir l'URL de l'image (soit upload, soit URL fournie)
-    let publicUrl: string
+    // 1. Upload l'image dans Supabase Storage
+    console.log('📤 Upload de l\'image...')
+    const fileName = `${user.id}/${Date.now()}-${imageFile.name}`
+    const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
+      .from('input-images')
+      .upload(fileName, imageFile, {
+        contentType: imageFile.type,
+      })
 
-    if (imageUrl) {
-      // Utiliser l'URL fournie (image déjà uploadée)
-      console.log('📷 Utilisation de l\'URL fournie:', imageUrl)
-      publicUrl = imageUrl
-    } else {
-      // Upload la nouvelle image dans Supabase Storage
-      console.log('📤 Upload d\'une nouvelle image...')
-      const fileName = `${user.id}/${Date.now()}-${imageFile!.name}`
-      const { data: uploadData, error: uploadError } = await supabaseAdmin.storage
-        .from('input-images')
-        .upload(fileName, imageFile!, {
-          contentType: imageFile!.type,
-        })
-
-      if (uploadError) {
-        console.error('Erreur upload:', uploadError)
-        return NextResponse.json(
-          { error: 'Erreur lors de l\'upload' },
-          { status: 500 }
-        )
-      }
-
-      // 2. Récupérer l'URL publique
-      const { data: { publicUrl: uploadedUrl } } = supabaseAdmin.storage
-        .from('input-images')
-        .getPublicUrl(uploadData.path)
-      
-      publicUrl = uploadedUrl
-      console.log('✅ Image uploadée:', publicUrl)
+    if (uploadError) {
+      console.error('Erreur upload:', uploadError)
+      return NextResponse.json(
+        { error: 'Erreur lors de l\'upload' },
+        { status: 500 }
+      )
     }
+
+    // 2. Récupérer l'URL publique
+    const { data: { publicUrl } } = supabaseAdmin.storage
+      .from('input-images')
+      .getPublicUrl(uploadData.path)
+    
+    console.log('✅ Image uploadée:', publicUrl)
 
     // 3. Créer le projet dans la DB
     const { data: project, error: projectError } = await supabaseAdmin
@@ -172,63 +159,16 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 4. Gérer l'image de référence (si fournie)
-    let referenceImageUrl: string | null = null
-    
-    if (referenceImageFile) {
-      console.log('📸 Upload de l\'image de référence...')
-      const refFileName = `${user.id}/${Date.now()}-reference-${referenceImageFile.name}`
-      const { data: refUploadData, error: refUploadError } = await supabaseAdmin.storage
-        .from('input-images')
-        .upload(refFileName, referenceImageFile, {
-          contentType: referenceImageFile.type,
-        })
-
-      if (refUploadError) {
-        console.error('⚠️ Erreur upload image de référence:', refUploadError)
-      } else {
-        const { data: { publicUrl: refPublicUrl } } = supabaseAdmin.storage
-          .from('input-images')
-          .getPublicUrl(refUploadData.path)
-        
-        referenceImageUrl = refPublicUrl
-        console.log('✅ Image de référence uploadée:', referenceImageUrl)
-      }
-    }
-
-    // 5. Appeler Replicate avec le modèle approprié
-    let modelId: string
-    let modelInput: any
-    
-    if (referenceImageUrl) {
-      // Utiliser PhotoMaker pour une transformation avec référence
-      modelId = 'tencentarc/photomaker:ddfc2b08d209f9fa8c1eca692712918bd449f695dabb4a958da31802a9570fe4'
-      console.log('🎨 Utilisation de PhotoMaker avec image de référence')
-      
-      modelInput = {
-        prompt: prompt,
-        input_image: publicUrl,
-        style_image: referenceImageUrl,
-        num_steps: 20,
-        style_strength_ratio: 20,
-        num_outputs: 1,
-      }
-    } else {
-      // Utiliser Nano-Banana par défaut (comme dans le projet chaussures)
-      modelId = process.env.REPLICATE_MODEL_ID || 'google/nano-banana'
-      console.log('🎨 Utilisation de Nano-Banana (modèle standard)')
-      
-      modelInput = {
-        image: publicUrl,
-        prompt: prompt,
-      }
-    }
-    
-    console.log('🚀 Appel à Replicate avec le modèle:', modelId)
+    // 4. Appeler Replicate avec nano-banana
+    console.log('🚀 Appel à Replicate avec nano-banana')
     let output: any
     try {
-      output = await replicate.run(modelId as any, {
-        input: modelInput,
+      output = await replicate.run('google/nano-banana' as any, {
+        input: {
+          prompt: prompt,
+          image_input: [publicUrl],
+          output_format: 'jpg',
+        },
       })
       
       console.log('✅ Réponse Replicate reçue')
@@ -247,17 +187,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 6. Télécharger l'image générée
+    // 5. Télécharger l'image générée
     const outputUrl = Array.isArray(output) ? output[0] : output
     const imageResponse = await fetch(outputUrl)
     const imageBlob = await imageResponse.blob()
 
-    // 7. Upload l'image générée
-    const outputFileName = `${user.id}/${Date.now()}-output.png`
+    // 6. Upload l'image générée
+    const outputFileName = `${user.id}/${Date.now()}-output.jpg`
     const { data: outputUploadData, error: outputUploadError } = await supabaseAdmin.storage
       .from('output-images')
       .upload(outputFileName, imageBlob, {
-        contentType: 'image/png',
+        contentType: 'image/jpeg',
       })
 
     if (outputUploadError) {
@@ -272,7 +212,7 @@ export async function POST(request: NextRequest) {
       .from('output-images')
       .getPublicUrl(outputUploadData.path)
 
-    // 8. Mettre à jour le projet
+    // 7. Mettre à jour le projet
     const { error: updateError } = await supabaseAdmin
       .from('projects')
       .update({
@@ -289,7 +229,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 9. Incrémenter le quota utilisé
+    // 8. Incrémenter le quota utilisé
     await supabaseAdmin
       .from('subscriptions')
       .update({
