@@ -458,7 +458,7 @@ export default function DashboardPage() {
             <div className="pt-4 border-t border-gray-200">
               <button
                 onClick={handleGenerate}
-                disabled={generating || (!selectedFile && !currentImageUrl) || !prompt.trim() || (subscription && subscription.quota_used >= subscription.quota_limit)}
+                disabled={generating || (!selectedFile && !currentImageUrl) || !prompt.trim() || (subscription ? subscription.quota_used >= subscription.quota_limit : false)}
                 className="btn btn-primary text-lg w-full disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {generating ? (
