@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Récupérer User ID</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body style="font-family: Arial; padding: 40px; background: #f5f5f5;">
+    <h1>🔑 Récupérer votre User ID</h1>
+    <div id="result" style="background: white; padding: 20px; border-radius: 8px; margin-top: 20px;">
+        Chargement...
+    </div>
+
+    <script>
+        const { createClient } = supabase;
+        const supabaseUrl = 'https://fvfacluheuyzrlnqqmzb.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZ2ZmFjbHVoZXV5enJsbnFxbXpiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA2MDUxNDUsImV4cCI6MjA3NjE4MTE0NX0.CGprR3WKiGJdyTx0PVZgutfvjrkDW4oeXAWagcgpDyA';
+        
+        const client = createClient(supabaseUrl, supabaseKey);
+
+        async function getUserId() {
+            const { data: { user }, error } = await client.auth.getUser();
+            
+            const resultDiv = document.getElementById('result');
+            
+            if (error || !user) {
+                resultDiv.innerHTML = `
+                    <p style="color: red;">❌ Vous n'êtes pas connecté</p>
+                    <p>Ouvrez <a href="http://localhost:3000/login" target="_blank">http://localhost:3000/login</a> et connectez-vous d'abord</p>
+                `;
+            } else {
+                resultDiv.innerHTML = `
+                    <p style="color: green; font-weight: bold;">✅ User ID trouvé !</p>
+                    <div style="background: #f0f0f0; padding: 15px; border-radius: 4px; margin-top: 10px; font-family: monospace; word-break: break-all;">
+                        ${user.id}
+                    </div>
+                    <p style="margin-top: 15px; color: #666;">
+                        <strong>Email:</strong> ${user.email}
+                    </p>
+                    <button onclick="copyToClipboard('${user.id}')" style="margin-top: 15px; padding: 10px 20px; background: #0070f3; color: white; border: none; border-radius: 4px; cursor: pointer;">
+                        📋 Copier le User ID
+                    </button>
+                `;
+            }
+        }
+
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text);
+            alert('✅ User ID copié dans le presse-papier !');
+        }
+
+        getUserId();
+    </script>
+</body>
+</html>
+
