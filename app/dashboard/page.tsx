@@ -197,12 +197,16 @@ export default function DashboardPage() {
 
   const handleManageSubscription = async () => {
     try {
+      console.log('🔧 Ouverture du portail de gestion...')
+      
       // Récupérer la session pour le token
       const { data: { session } } = await supabase.auth.getSession()
       
       if (!session?.access_token) {
         throw new Error('Session expirée')
       }
+
+      console.log('✅ Token récupéré, appel API...')
 
       const response = await fetch('/api/create-portal-session', {
         method: 'POST',
@@ -211,16 +215,23 @@ export default function DashboardPage() {
         },
       })
 
+      console.log('📡 Réponse API:', response.status)
       const data = await response.json()
+      console.log('📦 Data:', data)
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Erreur lors de la création de la session portal')
+      }
 
       if (data.url) {
+        console.log('🔗 Redirection vers:', data.url)
         window.location.href = data.url
       } else {
-        throw new Error('Erreur lors de la création de la session portal')
+        throw new Error('URL du portail non reçue')
       }
-    } catch (error) {
-      console.error('Erreur:', error)
-      alert('Une erreur est survenue')
+    } catch (error: any) {
+      console.error('❌ Erreur complète:', error)
+      alert(`Une erreur est survenue: ${error.message}`)
     }
   }
 

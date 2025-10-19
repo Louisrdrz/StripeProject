@@ -26,6 +26,8 @@ const supabaseAdmin = createClient(
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('🔧 [Portal] Début création session portal')
+    
     // Récupérer le token depuis le header Authorization
     const authHeader = request.headers.get('Authorization')
     let token = authHeader?.replace('Bearer ', '')
@@ -37,29 +39,42 @@ export async function POST(request: NextRequest) {
     }
     
     if (!token) {
+      console.log('❌ [Portal] Token manquant')
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
     }
+
+    console.log('✅ [Portal] Token présent')
 
     // Utiliser le client avec anon key pour valider le token utilisateur
     const { data: { user }, error: authError } = await supabaseAuth.auth.getUser(token)
 
     if (authError || !user) {
+      console.log('❌ [Portal] Erreur auth:', authError?.message)
       return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
     }
 
+    console.log('✅ [Portal] User ID:', user.id)
+
     // Récupérer le customer ID avec le client admin
-    const { data: subscription } = await supabaseAdmin
+    const { data: subscription, error: subError } = await supabaseAdmin
       .from('subscriptions')
       .select('stripe_customer_id')
       .eq('user_id', user.id)
       .single()
 
+    console.log('📊 [Portal] Subscription:', subscription)
+    console.log('📊 [Portal] Sub Error:', subError)
+
     if (!subscription?.stripe_customer_id) {
+      console.log('❌ [Portal] Pas de customer ID trouvé')
       return NextResponse.json(
         { error: 'Aucun abonnement trouvé' },
         { status: 404 }
       )
     }
+
+    console.log('✅ [Portal] Customer ID:', subscription.stripe_customer_id)
+    console.log('🔗 [Portal] Return URL:', `${process.env.NEXT_PUBLIC_URL}/dashboard`)
 
     // Créer une session portal
     const session = await stripe.billingPortal.sessions.create({
@@ -67,9 +82,11 @@ export async function POST(request: NextRequest) {
       return_url: `${process.env.NEXT_PUBLIC_URL}/dashboard`,
     })
 
+    console.log('✅ [Portal] Session créée:', session.url)
+
     return NextResponse.json({ url: session.url })
   } catch (error: any) {
-    console.error('Erreur création portal:', error)
+    console.error('❌ [Portal] Erreur création portal:', error)
     return NextResponse.json(
       { error: error.message || 'Erreur interne' },
       { status: 500 }
